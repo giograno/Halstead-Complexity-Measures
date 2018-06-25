@@ -7,11 +7,11 @@
  *
  */
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
+import java.io.*;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Scanner;
 import org.eclipse.jdt.core.compiler.IProblem;
@@ -24,30 +24,29 @@ import org.eclipse.jdt.core.dom.CompilationUnit;
 public class Main {
 	 
 	// construct AST of the .java files	
-	public static ASTVisitorMod parse(char[] str) {
+	public static ASTVisitorMod parse(char[] str, List<Object> line, String className) {
 		ASTParser parser = ASTParser.newParser(AST.JLS3); 
 		parser.setSource(str);
 		parser.setKind(ASTParser.K_COMPILATION_UNIT);
 		parser.setResolveBindings(true);
 		final CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+		line.add(cu.getPackage().getName().getFullyQualifiedName()+"."+className);
+
 			
 		// Check for compilationUnits problems in the provided file
-		IProblem[] problems = cu.getProblems();		
+		IProblem[] problems = cu.getProblems();
 		for(IProblem problem : problems) {
-			// Ignore some error because of the different versions.			
+			// Ignore some error because of the different versions.
             if (problem.getID() == 1610613332) 		 // 1610613332 = Syntax error, annotations are only available if source level is 5.0
-                continue;       
+                continue;
             else if (problem.getID() == 1610613329) // 1610613329 = Syntax error, parameterized types are only available if source level is 5.0
                 continue;
             else if (problem.getID() == 1610613328) // 1610613328 = Syntax error, 'for each' statements are only available if source level is 5.0
                 continue;
-            else 
+            else
             {
-            	// quit compilation if 
-    	        System.out.println("CompilationUnit problem Message " + problem.getMessage() + " \t At line= "+problem.getSourceLineNumber() + "\t Problem ID="+ problem.getID());            	
-    	        
-    	        System.out.println("The program will quit now!");
-    	        System.exit(1);
+            	// quit compilation if
+//    	        System.out.println("CompilationUnit problem Message " + problem.getMessage() + " \t At line= "+problem.getSourceLineNumber() + "\t Problem ID="+ problem.getID());
             }
 	    }
 				
@@ -127,13 +126,9 @@ public class Main {
 	
 	
 	public static void main(String[] args) throws IOException {
-		// get the Directory name from the user
-		String DirName=null;
-		Scanner user_input = new Scanner( System.in );
-		System.out.print("Enter Directory Name: ");
-		DirName = user_input.next( );
-		user_input.close();		
-		System.out.println("Directory Name is: " + DirName);
+		// dirs passes as input
+		String DirName = args[0];
+		String dirOutput = args[1];
 		
 		// retrieve all .java files in the directory and subdirectories. 
 		List<String> JavaFiles=retrieveFiles(DirName);
@@ -142,63 +137,69 @@ public class Main {
 		List<char[]> FilesRead=ParseFilesInDir(JavaFiles);	
 				
 		ASTVisitorMod ASTVisitorFile;		
-		int DistinctOperators=0;
-		int DistinctOperands=0;
-		int TotalOperators=0;
-		int TotalOperands=0;
-		int OperatorCount=0;
-		int OperandCount=0;
+		int DistinctOperators;
+		int DistinctOperands;
+		int OperatorCount;
+		int OperandCount;
 		 		
 		// Construct the AST of each java file. visit different nodes to get the number of operors and operands
 		// Retrieve the number of distinct operators, distinct operands, 
 		// total operators, and total operands for each .java file in the directory. 
-		// Sum each parameter from different files together to be used in Halstead Complexity metrics. 
-		for(int i=0; i<FilesRead.size(); i++)
-		{	
-			
-			System.out.println("Now, AST parsing for : "+ JavaFiles.get(i));			
-			ASTVisitorFile=parse(FilesRead.get(i));
-			DistinctOperators+=ASTVisitorFile.oprt.size();
-			DistinctOperands+=ASTVisitorFile.names.size();			
+		// Sum each parameter from different files together to be used in Halstead Complexity metrics.
+
+		FileWriter writer = null;
+		Path path = Paths.get(dirOutput, "halstead.csv");
+
+		if (FilesRead.size() > 0) {
+			writer = new FileWriter(path.toFile());
+		}
+
+		CSVUtils.writeLine(writer, Arrays.asList("project",
+				"class",
+				"vocabulary",
+				"length",
+				"calculated_length",
+				"volume",
+				"difficulty",
+				"effort",
+				"time",
+				"bugs"));
+
+		for(int i=0; i<FilesRead.size(); i++) {
+			List<Object> line = new ArrayList<>();
+			File dirFile = new File(DirName);
+			line.add(dirFile.getName());
+			File auxJava = new File(JavaFiles.get(i));
+			String className = auxJava.getName().replace(".java","");
+
+			System.out.println("Now, AST parsing for : "+ JavaFiles.get(i));
+			ASTVisitorFile=parse(FilesRead.get(i), line, className);
+			DistinctOperators=ASTVisitorFile.oprt.size();
+			DistinctOperands=ASTVisitorFile.names.size();
 			
 			OperatorCount=0;
-			for (int f : ASTVisitorFile.oprt.values()) {				
-				OperatorCount+= f;			
-			}
-			TotalOperators+=OperatorCount;
-			
+			for (int f : ASTVisitorFile.oprt.values())
+				OperatorCount += f;
+
 			OperandCount=0;
-			for (int f : ASTVisitorFile.names.values()) {
+			for (int f : ASTVisitorFile.names.values())
 				OperandCount += f;
-			}
-			TotalOperands+=OperandCount;
-			
-			System.out.println("Distinct Operators in this .java file = "+ ASTVisitorFile.oprt.size());
-			System.out.println("Distinct Operands in this .java file = "+ ASTVisitorFile.names.size());
-			System.out.println("Total Operators in this .java file = "+ OperatorCount);
-			System.out.println("Total Operands in this .java file = "+ OperandCount);
-			System.out.println("\n");
+
+			HalsteadMetrics halsteadMetrics = new HalsteadMetrics();
+			halsteadMetrics.setParameters(DistinctOperators, DistinctOperands, OperatorCount, OperandCount);
+
+			line.add(halsteadMetrics.getVocabulary());
+			line.add(halsteadMetrics.getProglen());
+			line.add(halsteadMetrics.getCalcProgLen());
+			line.add(halsteadMetrics.getVolume());
+			line.add(halsteadMetrics.getDifficulty());
+			line.add(halsteadMetrics.getEffort());
+			line.add(halsteadMetrics.getTimeReqProg());
+			line.add(halsteadMetrics.getTimeDelBugs());
+			CSVUtils.writeLine(writer, line);
+
 		}
-		
-		System.out.println("\n");
-		System.out.println("Overall Distinct Operators in the directory= "+ DistinctOperators);
-		System.out.println("Overall Distinct Operands in the directory= "+ DistinctOperands);
-		System.out.println("Overall Total Operators in the directory= "+ TotalOperators);
-		System.out.println("Overall Total Operands in the directory= "+ TotalOperands);		
-		
-		// calculate Halstead Complexity Metrics
-		System.out.println("\n");
-		System.out.println("###### Halstead Complexity Metrics ######");
-		HalsteadMetrics hal = new HalsteadMetrics();
-		 
-		hal.setParameters(DistinctOperators, DistinctOperands, TotalOperators, TotalOperands);
-		hal.getVocabulary();
-		hal.getProglen();
-		hal.getCalcProgLen();
-		hal.getVolume();
-		hal.getDifficulty();
-		hal.getEffort();
-		hal.getTimeReqProg();
-		hal.getTimeDelBugs();
+		writer.flush();
+		writer.close();
 	}
 }

@@ -1,7 +1,5 @@
 // Apply the java plugin to add support for Java
 apply plugin: 'java'
-apply plugin: 'eclipse'
-
 
 // In this section you declare where to find the dependencies of your project
 repositories {
@@ -21,7 +19,22 @@ dependencies {
     testCompile 'junit:junit:4.12'
 }
 
-
+task customFatJar(type: Jar) {
+    manifest {
+        attributes (
+                'Class-Path': configurations.compile.collect { it.getName() }.join(' '),
+                'Main-Class': 'Main'
+        )
+    }
+    baseName = 'halstead'
+    from (configurations.compile.collect { entry -> zipTree(entry) }) {
+        exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/*.SF'
+        exclude 'META-INF/*.DSA'
+        exclude 'META-INF/*.RSA'
+    }
+    with jar
+}
 
 task execute(type:JavaExec) {
    classpath = sourceSets.main.runtimeClasspath
